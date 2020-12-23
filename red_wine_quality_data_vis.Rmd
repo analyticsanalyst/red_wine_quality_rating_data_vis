@@ -1,0 +1,293 @@
+---
+title: "Red Wine Quality: Exploratory Data Visualizations"
+author: Brian Moore
+output: rmarkdown::github_document
+---
+
+### Analysis scenario
+- Use data visualizations to investigate which chemical properties 
+correlate with higher quality red wine ratings.   
+
+```{r echo=FALSE, include = FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
+```
+
+### Read in the data
+```{r}
+options(scipen=999)
+# warning: running this will install packages on your machine if they aren't present
+required_packages <- c('tidyverse', 'dslabs', 'corrplot', 'gridExtra')
+for(p in required_packages) {
+  if(!require(p,character.only = TRUE)) 
+        install.packages(p, repos = "http://cran.us.r-project.org")
+  library(p,character.only = TRUE)
+}
+pct_formater_1 <- scales::label_percent(accuracy = 1)
+
+url <- "https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv"
+
+rw_df <- read_delim(url, delim=";")
+
+# clean up column names (remove spaces in name)
+rw_df <- rw_df %>% dplyr::rename_all(list(~make.names(.)))
+
+# Uncomment lines below to learn more about the red wines dataset
+# url_2 <- "https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality.names"
+# read_lines(url_2)
+```
+
+### 10 example observations
+```{r}
+glimpse(head(rw_df, n=10))
+```
+
+### Summary stats on each of the data variables
+```{r}
+summary(rw_df)
+```
+
+### Quality counts
+- The data dictionary indicates quality ratings could range from 0 to 10.
+- Ratings only range from 3 to 8 for this dataset.
+- Sparse values on the tails.
+```{r}
+rw_df %>% 
+  count(quality) %>%
+  mutate(percent_total = pct_formater_1(n/sum(n)))
+```
+
+### Create new groups for quality ratings
+- Given the low and high end of the rating scale is less frequent we can build a new variable quality_2 so there's a higher frequency per quality level.
+```{r}
+rw_df <- rw_df %>%
+      mutate(quality_2 = case_when(
+            quality<=4 ~ "3 to 4",
+            quality==5~ "5",
+            quality==6 ~ "6",
+            quality>6 ~ "7 to 8"),
+      quality_2 = factor(quality_2, levels=c("3 to 4", "5", "6", "7 to 8")))
+
+rw_df %>% 
+  count(quality_2) %>%
+  mutate(percent_total = pct_formater_1(n/sum(n)))
+```
+
+### Distribuion of each variable by quality rating
+
+##### Observations on differences between groups:  
+- Alcholol: looks like it tends to be higher for top rated wines.
+- Citric Acid: lowest rating wines seem more likely to have lower citric acid.
+- Sulphates: this metric seems to trend higher for top rated wines.
+- Volatile Acidity: tends to be lower for top rated wines.
+
+Histograms not preferred here due to the groups being uneven in size.  
+In other words, showing counts via histograms would put the visual emphasis on the largest group size.
+Density plots can be tricky for non-Data folks to grasp. See [Khan Academy: Density Curves](https://www.khanacademy.org/math/ap-statistics/density-curves-normal-distribution-ap/density-curves/v/density-curves) for a shareable resource to further intuition. 
+
+```{r}
+rw_df %>%
+      select(-quality) %>%
+      gather(key="metric", value="value", -quality_2) %>%
+      ggplot(aes(x=value, fill=quality_2, color=quality_2)) +
+      geom_density(alpha=0.7) +
+      facet_wrap(metric ~ ., scale="free") +
+      labs(title="Density Plots by Quality Rating and Metric",
+           y="Density",
+           x="Metric Value",
+           fill="Quality Rating",
+           color="Quality Rating") +
+      theme(legend.position = "top")
+```
+
+### IQR plots
+- Modified boxplots which don't include whiskers or outliers.
+- Useful to compare the 25%, 50%, 75% quartiles of the data.
+- e.g. chops the tails off the distribution.
+
+##### Observations on differences between groups:  
+- IQR plots reflect similar takeaways to the density plots.
+- Slightly higher fixed acidity for top rated wines.
+- Slightly lower PH for top rated wines.
+
+```{r}
+rw_df %>%
+      select(-quality) %>%
+      gather(key="metric", value="value", -quality_2) %>%
+      group_by(quality_2, metric) %>%
+      summarise(y0 = min(value),
+                y25 = quantile(value, 0.25),
+                y50 = median(value),
+                y75 = quantile(value, 0.75),
+                y100 = max(value), 
+                .groups = 'drop') %>%
+      ggplot(aes(x=quality_2, color=quality_2)) +
+      geom_boxplot(
+         # small hack here: set the min to q25 var and max to q75 var 
+         # this prevents the whiskers from showing on the plot
+         aes(ymin = y25, lower = y25, middle = y50, upper = y75, ymax = y75),
+         stat = "identity") +
+      facet_wrap(. ~ metric, scale="free") +
+      labs(title="IQR Plots by Quality Rating and Metric",
+           y="Metric Value",
+           x="Rating",
+           fill="Quality Rating",
+           color="Quality Rating") +
+      theme(legend.position = "none")
+```
+
+### Violin plots
+- Violin plots offer another way to compare distributions across groups.
+- These type of charts tend to be informative for a data audience and not obvious for non-Data folks.
+
+```{r}
+rw_df %>%
+      select(-quality) %>%
+      gather(key="metric", value="value", -quality_2) %>%
+      ggplot(aes(x=value, y=quality_2, fill=quality_2, color=quality_2)) +
+      geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
+      facet_wrap(metric ~ ., scale="free") +
+      labs(title="Violin Plots by Quality Rating and Metric",
+           y="Quality Rating",
+           x="Metric Value") +
+      theme(legend.position = "none")
+```
+
+### Correlation plot: wine chemical metrics
+- Investigate which metrics trend together using correlation matrix.
+- Strongest correlation looks to exist between fixed acidity and pH metric.
+
+```{r}
+cor_mat <- cor(rw_df %>% select(-quality_2, -quality))
+
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+corrplot(cor_mat, method="color", col=col(200),  
+         type="upper", order="hclust", 
+         addCoef.col = "black", 
+         tl.col="black", tl.srt=45, #Text label color and rotation
+         number.cex= 7/ncol(rw_df),
+         diag=FALSE,
+         title="Correlations between Wine Metrics",
+         mar=c(0,0,1,0))
+```
+
+### Correlation plot: quality rating and wine metrics
+- Investigate metric correlations with quality rating.
+
+##### Observations on correlations with quality rating:  
+- Alcohol has the strongest positive correlation with wine quality rating.
+- Volatile acidity has the strongest negative correlation with wine quality rating.
+
+```{r}
+cor1 <- rw_df %>%
+  select(-quality, -quality_2) %>%
+  gather(key="metric", value="value") %>%
+  group_by(metric) %>%
+  summarise(correlation_with_quality = 
+              cor(rw_df$quality, 
+                  value),
+            .groups="drop") %>%
+  mutate(color_flag = ifelse(correlation_with_quality<0,"Below_0", "Above_0")) %>%
+  ggplot(aes(y=reorder(metric, correlation_with_quality), 
+             x=correlation_with_quality,
+             fill=color_flag)) +
+  geom_col(alpha=0.85) +
+  scale_fill_manual(values=c("forestgreen", "salmon")) +
+  theme(legend.position = "none") +
+  labs(subtitle="Correlation with 
+Wine Quality Rating",
+       y="Metric",
+       x="
+Pearson Correlation Coefficient")
+
+cor2 <- rw_df %>%
+  select(-quality, -quality_2) %>%
+  gather(key="metric", value="value") %>%
+  group_by(metric) %>%
+  summarise(correlation_with_quality = 
+              cor(rw_df$quality, 
+                  value),
+            .groups="drop") %>%
+  mutate(color_flag = ifelse(correlation_with_quality<0,"Below_0", "Above_0"),
+         abs_cor = abs(correlation_with_quality)) %>%
+  ggplot(aes(y=reorder(metric, abs_cor), 
+             x=abs_cor,
+             fill=color_flag)) +
+  geom_col(alpha=0.85) +
+  scale_fill_manual(values=c("forestgreen", "salmon")) +
+  theme(legend.position = "none") +
+  labs(subtitle ="Abs. Correlation with 
+Wine Quality Rating",
+       y="Metric",
+       x="Absolute Value
+Pearson Correlation Coefficient")
+
+grid.arrange(cor1, cor2, ncol=2)
+```
+
+### Bivariate relationship: density and alcohol
+- Top rated wines tend to have higher alcohol compared to other rating groups.
+- Density is roughly similar between groups.
+- Negative correlation between alcohol and density.
+
+```{r}
+rw_df %>% 
+  group_by(quality_2) %>%
+  mutate(median_density = median(density),
+         median_alcohol = median(alcohol)) %>%
+  ggplot(aes(x=density, y=alcohol)) +
+  geom_point(aes(color=quality_2), alpha=0.4, show.legend = F) +
+  geom_vline(aes(xintercept = median_density), linetype="dashed", color="grey40") + 
+  geom_hline(aes(yintercept = median_alcohol), linetype="dashed", color="grey40") + 
+  facet_wrap(. ~ quality_2, ncol=4) +
+  theme(strip.text = element_text(size=16),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+  labs(title="Rating Quality by Alcohol and Density",
+       subtitle="Horizontal and vertical lines represent 
+the rating group metric median.",
+       y="Alcohol",
+       x="Density")
+```
+
+### Bivariate relationship: citric acid and volatile acidity
+- Seems higher quality wines clustered tend to have higher citric acid and lower volatile acidity.
+
+```{r}
+rw_df %>% 
+  ggplot(aes(x=citric.acid, y=volatile.acidity)) +
+  geom_point(aes(color=quality_2), alpha=0.4, show.legend = F) +
+  facet_wrap(. ~ quality_2, ncol=4)
+
+rw_df %>% 
+  group_by(quality_2) %>%
+  mutate(median_citric.acid = median(citric.acid),
+         median_volatile.acidity = median(volatile.acidity)) %>%
+  ggplot(aes(x=citric.acid, y=volatile.acidity)) +
+  geom_point(aes(color=quality_2), alpha=0.4, show.legend = F) +
+  geom_vline(aes(xintercept = median_citric.acid), linetype="dashed", color="grey40") + 
+  geom_hline(aes(yintercept = median_volatile.acidity), linetype="dashed", color="grey40") + 
+  facet_wrap(. ~ quality_2, ncol=4) +
+  theme(strip.text = element_text(size=16),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+  labs(title="Rating Quality by Citric Acid and Volatile Acidity",
+       subtitle="Horizontal and vertical lines represent 
+the rating group metric median.",
+       y="Volatile Acidity",
+       x="Citric Acid")
+```
+
+### Future ideas
+- Is there a more robust wine library dataset that has features on soil, climate, wine maker, year, etc?
+- Would grape region have a strong correlation with wine quality rating?
+- Create a geo plot and overlay wine ratings on a map?
+- Further explore how chemical properties interact?
+
+### Data source citation
+P. Cortez, A. Cerdeira, F. Almeida, T. Matos and J. Reis.  
+Modeling wine preferences by data mining from physicochemical properties.  
+In Decision Support Systems, Elsevier, 47(4):547-553. ISSN: 0167-9236.  
+
+Available at:  
+[@Elsevier] http://dx.doi.org/10.1016/j.dss.2009.05.016  
+[Pre-press (pdf)] http://www3.dsi.uminho.pt/pcortez/winequality09.pdf  
+[bib] http://www3.dsi.uminho.pt/pcortez/dss09.bib  
+
