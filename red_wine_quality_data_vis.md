@@ -361,15 +361,6 @@ the rating group metric median.",
 
 ``` r
 rw_df %>% 
-  ggplot(aes(x=citric.acid, y=volatile.acidity)) +
-  geom_point(aes(color=quality_2), alpha=0.4, show.legend = F) +
-  facet_wrap(. ~ quality_2, ncol=4)
-```
-
-![](red_wine_quality_data_vis_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
-
-``` r
-rw_df %>% 
   group_by(quality_2) %>%
   mutate(median_citric.acid = median(citric.acid),
          median_volatile.acidity = median(volatile.acidity)) %>%
@@ -387,7 +378,7 @@ the rating group metric median.",
        x="Citric Acid")
 ```
 
-![](red_wine_quality_data_vis_files/figure-gfm/unnamed-chunk-13-2.png)<!-- -->
+![](red_wine_quality_data_vis_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
 
 ### Future ideas
 
