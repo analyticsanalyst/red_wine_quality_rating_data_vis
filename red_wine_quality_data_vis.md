@@ -354,8 +354,8 @@ the rating group metric median.",
 
 ### Bivariate relationship: citric acid and volatile acidity
 
-  - Seems higher quality wines clustered tend to have higher citric acid
-    and lower volatile acidity.
+  - Higher rating quality wines tend to have higher citric acid and
+    lower volatile acidity.
 
 <!-- end list -->
 
